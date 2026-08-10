@@ -322,27 +322,66 @@ def logged_in(page, sel):
         return False
 
 
+def login_failure_snapshot(page, cfg, why):
+    """Send a picture of whatever the browser is looking at, so we can see it."""
+    try:
+        DEBUG_DIR.mkdir(exist_ok=True)
+        shot = DEBUG_DIR / "login_problem.png"
+        page.screenshot(path=str(shot), full_page=False)
+        send_file(cfg, shot, f"Login problem: {why}", as_photo=True)
+        (DEBUG_DIR / "login_problem.html").write_text(page.content())
+        send_file(cfg, DEBUG_DIR / "login_problem.html", "Page code at the moment login failed.")
+    except Exception as exc:
+        log(f"could not take a snapshot: {exc}")
+
+
 def log_in(page, cfg, sel):
+    """
+    WG-Gesucht has no ordinary login link - the form lives in a popup that the
+    site opens with its own javascript function. So we call that function
+    directly instead of hunting for a link to click.
+    """
     log("logging in")
     page.goto("https://www.wg-gesucht.de/", wait_until="domcontentloaded")
     dismiss_cookies(page, sel)
     if logged_in(page, sel):
         log("already logged in from the saved session")
         return True
+
     try:
-        page.locator(sel["login_open"]).first.click()
-        page.wait_for_timeout(1500)
-        page.fill(sel["login_email"], cfg["account"]["email"])
+        page.evaluate("fireLoginOrRegisterModalRequest('sign_in')")
+        page.wait_for_timeout(2000)
+    except Exception as exc:
+        log(f"could not open the login popup: {exc}")
+        login_failure_snapshot(page, cfg, "popup would not open")
+        return False
+
+    try:
+        email = page.locator(sel["login_email"]).first
+        email.wait_for(state="visible", timeout=10000)
+        email.fill(cfg["account"]["email"])
         page.fill(sel["login_password"], cfg["account"]["password"])
-        page.click(sel["login_submit"])
-        page.wait_for_timeout(4000)
+        page.locator(sel["login_submit"]).first.click()
+        page.wait_for_timeout(6000)
     except Exception as exc:
         log(f"login form did not behave as expected: {exc}")
+        login_failure_snapshot(page, cfg, str(exc)[:200])
         return False
+
+    if page.locator("#login_two_factor_authentication_form").count():
+        try:
+            if page.locator("#login_two_factor_authentication_form").first.is_visible(timeout=2000):
+                log("WG-Gesucht is asking for a two-factor code - turn 2FA off "
+                    "for this account, a bot cannot answer it")
+                return False
+        except Exception:
+            pass
+
     if logged_in(page, sel):
         log("logged in")
         return True
     log("login failed - wrong details, or a captcha appeared")
+    login_failure_snapshot(page, cfg, "form submitted but we are still logged out")
     return False
 
 
