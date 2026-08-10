@@ -26,6 +26,7 @@ searches:
 
   - name: "befristet (Zwischenmiete)"
     min_months: 3
+    earliest_start: "2026-10-01"   # checked by the bot; the URL's own date filter does not work
     url: "https://www.wg-gesucht.de/1-zimmer-wohnungen-und-wohnungen-in-Muenchen.90.1+2.1.0.html?categories%5B%5D=1&categories%5B%5D=2&rent_types%5B%5D=1&rent_range=0%2C1000&min_rent=0&max_rent=1000&offer_filter=1&city_id=90&sort_order=0&noDeact=1&rMax=1000&dFr=1790848800&exc=2&img_only=1"
     message: |
       [salutation],
@@ -44,7 +45,8 @@ searches:
       Chris
 
   - name: "unbefristet (langfristig)"
-    min_months: 0           # the URL already requires a start after 01.10
+    min_months: 0
+    earliest_start: "2026-10-01"
     url: "https://www.wg-gesucht.de/1-zimmer-wohnungen-und-wohnungen-in-Muenchen.90.1+2.1.0.html?categories%5B%5D=1&categories%5B%5D=2&rent_types%5B%5D=2&rent_range=0%2C1000&min_rent=0&max_rent=1000&offer_filter=1&city_id=90&sort_order=0&noDeact=1&rMax=1000&dFr=1790848800&exc=2&img_only=1"
     message: |
       [salutation],
