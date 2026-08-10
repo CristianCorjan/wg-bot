@@ -517,25 +517,87 @@ def compose(template, facts, extras, cfg, listing=None):
     return body
 
 
-def deliver(page, body, sel, really_send):
+
+def click_first(page, selector_string, timeout=6000):
+    """
+    Try each selector in a comma separated list until one works.
+
+    Doing them one at a time (rather than handing the whole list to Playwright)
+    means a list can mix ordinary CSS with text matching, so a button can be
+    found by its label when its markup changes.
+    """
+    for part in selector_string.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            target = page.locator(part).first
+            target.wait_for(state="visible", timeout=timeout)
+            target.click()
+            return True, part
+        except Exception:
+            continue
+    return False, None
+
+
+def dismiss_safety_tips(page, sel):
+    """
+    Before the message form works, WG-Gesucht shows a "Wichtige Sicherheitstipps"
+    box that must be acknowledged. It sits over the form, so the send button
+    cannot be clicked until it is gone.
+    """
+    for part in sel.get("safety_ok", "#sec_advice_submit_button").split(","):
+        try:
+            button = page.locator(part.strip()).first
+            if button.is_visible(timeout=3000):
+                button.click()
+                page.wait_for_timeout(1200)
+                log("  safety tips acknowledged")
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def form_snapshot(page, cfg, why):
+    """Capture the contact form when it does not look the way we expect."""
     try:
-        page.locator(sel["contact_button"]).first.click()
-        page.wait_for_timeout(2500)
+        DEBUG_DIR.mkdir(exist_ok=True)
+        shot = DEBUG_DIR / "form_problem.png"
+        page.screenshot(path=str(shot), full_page=False)
+        send_file(cfg, shot, f"Contact form problem: {why}", as_photo=True)
+        page_file = DEBUG_DIR / "form_problem.html"
+        page_file.write_text(page.content())
+        send_file(cfg, page_file, "Page code - send this on to get the selectors fixed.")
     except Exception as exc:
-        return False, f"no contact button ({exc})"
+        log(f"could not capture the form: {exc}")
+
+
+def deliver(page, body, sel, really_send, cfg=None):
+    clicked, used = click_first(page, sel["contact_button"], timeout=8000)
+    if not clicked:
+        if cfg:
+            form_snapshot(page, cfg, "could not find the 'Nachricht senden' button")
+        return False, "no contact button"
+    page.wait_for_timeout(3000)
+
+    dismiss_safety_tips(page, sel)
     try:
         box = page.locator(sel["message_box"]).first
         box.wait_for(timeout=8000)
         box.fill(body)
     except Exception as exc:
+        if cfg:
+            form_snapshot(page, cfg, f"no message box ({str(exc)[:120]})")
         return False, f"no message box ({exc})"
     if not really_send:
         return True, "DRY RUN - not sent"
-    try:
-        page.locator(sel["send_button"]).first.click()
-        page.wait_for_timeout(3000)
-    except Exception as exc:
-        return False, f"could not click send ({exc})"
+    clicked, _ = click_first(page, sel["send_button"], timeout=8000)
+    if not clicked:
+        if cfg:
+            form_snapshot(page, cfg, "could not click the Senden button")
+        return False, "could not click send"
+    page.wait_for_timeout(3000)
     return True, "sent"
 
 
@@ -723,7 +785,7 @@ def main():
                     continue
 
                 body = compose(search["message"], facts, extras, cfg, listing)
-                ok, result = deliver(page, body, sel, really_send)
+                ok, result = deliver(page, body, sel, really_send, cfg)
                 log(f"  {listing['title'][:50]} -> {result}"
                     + (f" [{note}]" if note else ""))
 
