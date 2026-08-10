@@ -344,10 +344,31 @@ def dismiss_cookies(page, sel):
 
 
 def logged_in(page, sel):
+    """
+    Decide whether we are signed in.
+
+    Links to 'mein-wg-gesucht' exist even when logged out, so they prove
+    nothing. Two things are reliable:
+      * a sign-in trigger in the page means we are logged OUT
+      * the word 'abmelden' (log out) only appears when we are logged IN
+    """
     try:
-        return page.locator(sel["logged_in_marker"]).first.is_visible(timeout=4000)
+        html = page.content().lower()
     except Exception:
         return False
+
+    if "fireloginorregistermodalrequest('sign_in')" in html.replace('"', "'"):
+        return False
+    if "abmelden" in html or "logout" in html:
+        return True
+
+    for part in sel["logged_in_marker"].split(","):
+        try:
+            if page.locator(part.strip()).first.is_visible(timeout=2000):
+                return True
+        except Exception:
+            continue
+    return False
 
 
 def login_failure_snapshot(page, cfg, why):
@@ -386,6 +407,10 @@ def log_in(page, cfg, sel):
         login_failure_snapshot(page, cfg, "popup would not open")
         return False
 
+    if logged_in(page, sel):
+        log("the popup did not appear because we are already logged in")
+        return True
+
     # Step 1: the popup asks for the email address only, then "Weiter".
     try:
         email = page.locator(sel["login_email"]).first
@@ -394,6 +419,9 @@ def log_in(page, cfg, sel):
         page.locator(sel["login_email_submit"]).first.click()
         page.wait_for_timeout(3000)
     except Exception as exc:
+        if logged_in(page, sel):
+            log("no login needed - the cookies already signed us in")
+            return True
         log(f"first login step (email) failed: {exc}")
         login_failure_snapshot(page, cfg, f"email step: {str(exc)[:150]}")
         return False
@@ -530,6 +558,12 @@ def cookies_from_env():
     Playwright's own storage_state format.
     """
     raw = os.environ.get("WG_COOKIES", "").strip()
+    if not raw:
+        # running locally: just drop the export into cookies.json next to this file
+        local = HERE / "cookies.json"
+        if local.exists():
+            raw = local.read_text().strip()
+            log("using cookies.json")
     if not raw:
         return []
     try:
