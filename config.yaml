@@ -20,17 +20,28 @@ limits:
 # SEARCHES
 # One block per search. The URL decides which message is used, so the bot never
 # has to guess the category. min_months is checked by the bot on each listing,
-# because WG-Gesucht's own filter can't express "at least 6 months".
+# because WG-Gesucht's own filter can't express "at least 3 months".
 # ---------------------------------------------------------------------------
 searches:
 
   - name: "befristet (Zwischenmiete)"
-    min_months: 6
+    min_months: 3
     url: "https://www.wg-gesucht.de/1-zimmer-wohnungen-und-wohnungen-in-Muenchen.90.1+2.1.0.html?categories%5B%5D=1&categories%5B%5D=2&rent_types%5B%5D=1&rent_range=0%2C1000&min_rent=0&max_rent=1000&offer_filter=1&city_id=90&sort_order=0&noDeact=1&rMax=1000&dFr=1790848800&exc=2&img_only=1"
     message: |
       [salutation],
 
-      [dein Text für eine befristete Miete]
+      euer Angebot passt sehr gut zu dem, was ich suche. Ich suche ab Oktober
+      eine Zwischenmiete und bin bei der Dauer flexibel.
+
+      Ich bin ruhig, zuverlässig und gehe mit einer Wohnung so um, als wäre es
+      meine eigene. Einkommensnachweis, SCHUFA und
+      Mietschuldenfreiheitsbescheinigung kann ich sofort schicken.
+
+      Über eine Besichtigung würde ich mich sehr freuen — zeitlich bin ich
+      flexibel und kann auch kurzfristig vorbeikommen.
+
+      Viele Grüße
+      Chris
 
   - name: "unbefristet (langfristig)"
     min_months: 0           # the URL already requires a start after 01.10
@@ -38,7 +49,18 @@ searches:
     message: |
       [salutation],
 
-      [dein Text für eine langfristige Miete]
+      eure Wohnung gefällt mir sehr. Ich suche genau so etwas Langfristiges —
+      ich möchte ankommen und bleiben, nicht in einem halben Jahr wieder
+      umziehen.
+
+      Ich bin Nichtraucher, ruhig und unkompliziert. Alle Unterlagen
+      (Gehaltsnachweise, SCHUFA, Mietschuldenfreiheitsbescheinigung) liegen
+      bereit und kommen auf Wunsch sofort.
+
+      Über eine Einladung zur Besichtigung freue ich mich sehr.
+
+      Viele Grüße
+      Chris
 
 # ---------------------------------------------------------------------------
 # NAMES — for "Liebe" vs "Lieber"
@@ -59,7 +81,7 @@ names:
 # ---------------------------------------------------------------------------
 rules:
   - name: "Ablöse"
-    keywords: ["ablöse", "abloese", "abloese", "ablösevereinbarung"]
+    keywords: ["ablöse", "abloese", "ablösevereinbarung"]
     add: "Mit der Ablöse bin ich einverstanden."
 
   - name: "Emoji / proof of reading"
