@@ -1,0 +1,108 @@
+# Copy this, fill it in, and save it as config.yaml.
+# On GitHub, leave account/telegram empty — those come from the secrets box.
+
+account:
+  email: ""
+  password: ""
+
+telegram:
+  token: ""
+  chat_id: ""
+
+limits:
+  max_per_day: 20
+  max_per_run: 3
+  min_delay_seconds: 90
+  max_delay_seconds: 300
+  active_hours: [0, 24]     # 0-24 means round the clock
+
+# ---------------------------------------------------------------------------
+# SEARCHES
+# One block per search. The URL decides which message is used, so the bot never
+# has to guess the category. min_months is checked by the bot on each listing,
+# because WG-Gesucht's own filter can't express "at least 6 months".
+# ---------------------------------------------------------------------------
+searches:
+
+  - name: "befristet (Zwischenmiete)"
+    min_months: 6
+    url: "https://www.wg-gesucht.de/1-zimmer-wohnungen-und-wohnungen-in-Muenchen.90.1+2.1.0.html?categories%5B%5D=1&categories%5B%5D=2&rent_types%5B%5D=1&rent_range=0%2C1000&min_rent=0&max_rent=1000&offer_filter=1&city_id=90&sort_order=0&noDeact=1&rMax=1000&dFr=1790848800&exc=2&img_only=1"
+    message: |
+      [salutation],
+
+      [dein Text für eine befristete Miete]
+
+  - name: "unbefristet (langfristig)"
+    min_months: 0           # the URL already requires a start after 01.10
+    url: "https://www.wg-gesucht.de/1-zimmer-wohnungen-und-wohnungen-in-Muenchen.90.1+2.1.0.html?categories%5B%5D=1&categories%5B%5D=2&rent_types%5B%5D=2&rent_range=0%2C1000&min_rent=0&max_rent=1000&offer_filter=1&city_id=90&sort_order=0&noDeact=1&rMax=1000&dFr=1790848800&exc=2&img_only=1"
+    message: |
+      [salutation],
+
+      [dein Text für eine langfristige Miete]
+
+# ---------------------------------------------------------------------------
+# NAMES — for "Liebe" vs "Lieber"
+# The bot uses the site's own "Frau X" / "Herr X" wording when it exists.
+# Otherwise it looks the first name up here. A name in neither list gets a
+# neutral "Hallo Anna" rather than a guess.
+# Add names as you meet them.
+# ---------------------------------------------------------------------------
+names:
+  female: [Anna, Julia, Sabine, Maria, Petra, Claudia, Laura, Sophie, Lena,
+           Katharina, Christina, Nicole, Andrea, Susanne, Monika, Elena]
+  male:   [Max, Thomas, Stefan, Michael, Andreas, Peter, Markus, Christian,
+           Alexander, Daniel, Martin, Florian, Sebastian, Jonas, Lukas]
+
+# ---------------------------------------------------------------------------
+# RULES — instructions landlords hide in the description
+# If any keyword appears, the sentence in "add" is appended to your message.
+# ---------------------------------------------------------------------------
+rules:
+  - name: "Ablöse"
+    keywords: ["ablöse", "abloese", "abloese", "ablösevereinbarung"]
+    add: "Mit der Ablöse bin ich einverstanden."
+
+  - name: "Emoji / proof of reading"
+    keywords: ["emoji", "smiley", "damit ich sehe", "damit ich weiß",
+               "damit wir sehen", "beweis dass du"]
+    add: "🌻"
+
+  - name: "Kaution"
+    keywords: ["kaution in bar", "kaution vorab"]
+    add: "Mit der Kaution bin ich einverstanden."
+
+# ---------------------------------------------------------------------------
+# FLAG KEYWORDS — asks the bot cannot answer for you
+# If one of these appears and no rule above matched, the bot does NOT send.
+# It messages you on Telegram so you can write that one by hand.
+# ---------------------------------------------------------------------------
+flag_keywords:
+  - "stichwort"
+  - "kennwort"
+  - "codewort"
+  - "nenne mir"
+  - "nennt mir"
+  - "schreib mir das wort"
+  - "schreibt mir das wort"
+  - "erste satz"
+  - "ersten satz"
+  - "betreff"
+  - "lieblings"
+  - "beantworte"
+  - "beantwortet"
+  - "frage:"
+  - "wenn du das liest"
+  - "wer das liest"
+
+selectors:
+  cookie_accept: "#cmpwelcomebtnyes, .cmpboxbtnyes"
+  login_open: "a[href*='login']"
+  login_email: "#login_email_username"
+  login_password: "#login_password"
+  login_submit: "#login_submit"
+  logged_in_marker: "a[href*='mein-wg-gesucht']"
+  listing_card: "[id^='liste-details-ad-']"
+  listing_link: "a[href*='.html']"
+  contact_button: "a[href*='nachricht-senden'], #copy_email_button"
+  message_box: "#message_input, textarea[name='message']"
+  send_button: "#send_message_button, button[type='submit']"
