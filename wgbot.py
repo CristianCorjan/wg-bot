@@ -21,6 +21,7 @@ Usage:
 """
 
 import argparse
+import json
 import os
 import random
 import re
@@ -383,8 +384,12 @@ def log_in(page, cfg, sel):
     if page.locator("#login_two_factor_authentication_form").count():
         try:
             if page.locator("#login_two_factor_authentication_form").first.is_visible(timeout=2000):
-                log("WG-Gesucht is asking for a two-factor code - turn 2FA off "
-                    "for this account, a bot cannot answer it")
+                log("WG-Gesucht wants an emailed code because it does not "
+                    "recognise this machine. A bot cannot read that code.")
+                log("Fix: log in yourself in a normal browser, export your "
+                    "cookies, and put them in the WG_COOKIES secret. See the "
+                    "README section 'When it asks for a code'.")
+                login_failure_snapshot(page, cfg, "two-factor / new device code requested")
                 return False
         except Exception:
             pass
@@ -477,6 +482,55 @@ def deliver(page, body, sel, really_send):
 
 # --- config -----------------------------------------------------------------
 
+
+SAMESITE = {"lax": "Lax", "strict": "Strict", "no_restriction": "None",
+            "none": "None", "unspecified": "Lax", "": "Lax"}
+
+
+def cookies_from_env():
+    """
+    Accept a browser cookie export so we never have to log in at all.
+
+    WG-Gesucht asks for an emailed code when it sees a new device, which a bot
+    cannot answer. Logging in yourself once in a normal browser and handing over
+    the resulting cookies avoids the whole problem.
+
+    Understands both a Cookie-Editor style export (a list of cookies) and
+    Playwright's own storage_state format.
+    """
+    raw = os.environ.get("WG_COOKIES", "").strip()
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        log(f"WG_COOKIES is not valid JSON: {exc}")
+        return []
+
+    items = data.get("cookies", []) if isinstance(data, dict) else data
+    cookies = []
+    for c in items:
+        name, value = c.get("name"), c.get("value")
+        if not name or value is None:
+            continue
+        domain = c.get("domain") or ".wg-gesucht.de"
+        cookie = {
+            "name": name,
+            "value": value,
+            "domain": domain,
+            "path": c.get("path", "/"),
+            "httpOnly": bool(c.get("httpOnly", False)),
+            "secure": bool(c.get("secure", True)),
+            "sameSite": SAMESITE.get(str(c.get("sameSite", "lax")).lower(), "Lax"),
+        }
+        expires = c.get("expires", c.get("expirationDate"))
+        if expires and expires > 0:
+            cookie["expires"] = int(expires)
+        cookies.append(cookie)
+    log(f"loaded {len(cookies)} cookie(s) from WG_COOKIES")
+    return cookies
+
+
 def load_config():
     cfg = yaml.safe_load(CONFIG_FILE.read_text())
     cfg.setdefault("account", {})
@@ -544,6 +598,12 @@ def main():
         context = browser.new_context(
             storage_state=str(SESSION_FILE) if SESSION_FILE.exists() else None,
             locale="de-DE", viewport={"width": 1366, "height": 900})
+        cookies = cookies_from_env()
+        if cookies:
+            try:
+                context.add_cookies(cookies)
+            except Exception as exc:
+                log(f"could not use those cookies: {exc}")
         page = context.new_page()
 
         if args.inspect:
