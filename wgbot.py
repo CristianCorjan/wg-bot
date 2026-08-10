@@ -356,16 +356,28 @@ def log_in(page, cfg, sel):
         login_failure_snapshot(page, cfg, "popup would not open")
         return False
 
+    # Step 1: the popup asks for the email address only, then "Weiter".
     try:
         email = page.locator(sel["login_email"]).first
         email.wait_for(state="visible", timeout=10000)
         email.fill(cfg["account"]["email"])
-        page.fill(sel["login_password"], cfg["account"]["password"])
+        page.locator(sel["login_email_submit"]).first.click()
+        page.wait_for_timeout(3000)
+    except Exception as exc:
+        log(f"first login step (email) failed: {exc}")
+        login_failure_snapshot(page, cfg, f"email step: {str(exc)[:150]}")
+        return False
+
+    # Step 2: the password box appears only after the email is accepted.
+    try:
+        pw = page.locator(sel["login_password"]).first
+        pw.wait_for(state="visible", timeout=10000)
+        pw.fill(cfg["account"]["password"])
         page.locator(sel["login_submit"]).first.click()
         page.wait_for_timeout(6000)
     except Exception as exc:
-        log(f"login form did not behave as expected: {exc}")
-        login_failure_snapshot(page, cfg, str(exc)[:200])
+        log(f"second login step (password) failed: {exc}")
+        login_failure_snapshot(page, cfg, f"password step: {str(exc)[:150]}")
         return False
 
     if page.locator("#login_two_factor_authentication_form").count():
