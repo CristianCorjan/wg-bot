@@ -129,6 +129,9 @@ selectors:
   logged_in_marker: "a[href*='mein-wg-gesucht'], a[href*='logout'], a[href*='abmelden']"
   listing_card: "[id^='liste-details-ad-']"
   listing_link: "h2 a"
-  contact_button: "a[href*='nachricht-senden'], #copy_email_button"
-  message_box: "#message_input, textarea[name='message']"
-  send_button: "#send_message_button, button[type='submit']"
+  # tried in order: by link, then by the button's visible label
+  contact_button: "a[href*='nachricht-senden'], a:has-text('Nachricht senden'), button:has-text('Nachricht senden')"
+  # "Wichtige Sicherheitstipps" box that covers the form until acknowledged
+  safety_ok: "#sec_advice_submit_button"
+  message_box: "#message_input, textarea[name='content']"
+  send_button: "button.conversation_send_button, button:has-text('Senden')"
