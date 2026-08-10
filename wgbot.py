@@ -295,6 +295,33 @@ def parse_search_page(html):
 
 # --- browser ----------------------------------------------------------------
 
+
+def visit(page, url, tries=3):
+    """
+    Open a page, patiently.
+
+    WG-Gesucht sometimes takes a long time to answer, or stalls entirely, from
+    a data-centre address. Waiting for "commit" rather than a fully parsed
+    document means we carry on as soon as the server actually responds, and we
+    give it more than one chance.
+    """
+    last = None
+    for attempt in range(tries):
+        try:
+            page.goto(url, wait_until="commit", timeout=60000)
+            try:
+                page.wait_for_load_state("domcontentloaded", timeout=20000)
+            except Exception:
+                pass          # enough of the page is there to work with
+            return True
+        except Exception as exc:
+            last = exc
+            log(f"page did not load (try {attempt + 1}/{tries}): {str(exc)[:120]}")
+            page.wait_for_timeout(3000 + attempt * 4000)
+    log(f"giving up on {url}: {str(last)[:150]}")
+    return False
+
+
 def dismiss_cookies(page, sel):
     """
     The consent box is injected a second or two after the page loads, so a
@@ -343,7 +370,9 @@ def log_in(page, cfg, sel):
     directly instead of hunting for a link to click.
     """
     log("logging in")
-    page.goto("https://www.wg-gesucht.de/", wait_until="domcontentloaded")
+    if not visit(page, "https://www.wg-gesucht.de/"):
+        log("could not reach wg-gesucht.de at all")
+        return False
     dismiss_cookies(page, sel)
     if logged_in(page, sel):
         log("already logged in from the saved session")
@@ -403,7 +432,8 @@ def log_in(page, cfg, sel):
 
 
 def collect(page, search, sel):
-    page.goto(search["url"], wait_until="domcontentloaded")
+    if not visit(page, search["url"]):
+        return []
     dismiss_cookies(page, sel)
     page.wait_for_timeout(2500)
     return parse_search_page(page.content())
@@ -411,7 +441,8 @@ def collect(page, search, sel):
 
 def examine(page, listing, sel):
     """Open the listing and read everything we need to decide."""
-    page.goto(listing["url"], wait_until="domcontentloaded")
+    if not visit(page, listing["url"]):
+        return {"text": "", "start": None, "end": None, "unreachable": True}
     page.wait_for_timeout(1500)
     text = page.inner_text("body")
     start, end = find_dates(text)
@@ -608,7 +639,7 @@ def main():
 
         if args.inspect:
             DEBUG_DIR.mkdir(exist_ok=True)
-            page.goto(cfg["searches"][0]["url"], wait_until="domcontentloaded")
+            visit(page, cfg["searches"][0]["url"])
             dismiss_cookies(page, sel)
             page.wait_for_timeout(2500)
             page.screenshot(path=str(DEBUG_DIR / "page.png"), full_page=True)
@@ -640,6 +671,9 @@ def main():
                 if sent >= budget:
                     break
                 facts = examine(page, listing, sel)
+                if facts.get("unreachable"):
+                    log(f"  could not open: {listing['title'][:50]} - leaving it for next time")
+                    continue
                 action, note, extras = decide(listing, facts, search, cfg)
 
                 if action == "skip":
