@@ -32,6 +32,7 @@ from pathlib import Path
 
 import requests
 import yaml
+from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
 
 HERE = Path(__file__).parent
@@ -211,18 +212,107 @@ def apply_rules(description, cfg):
     return extras, unknown, matched_rules
 
 
+
+CARD_DATES = re.compile(r"(\d{2}\.\d{2}\.\d{4})\s*-\s*(\d{2}\.\d{2}\.\d{4})")
+CARD_FROM = re.compile(r"\bab\s*(\d{2}\.\d{2}\.\d{4})")
+CARD_PRICE = re.compile(r"(\d[\d.]*)\s*\u20ac")
+TITLES = ("herr", "frau")
+
+
+def to_date(text):
+    d, m, y = text.split(".")
+    try:
+        return date(int(y), int(m), int(d))
+    except ValueError:
+        return None
+
+
+def clean_name(raw):
+    """
+    Turn the name shown on a card into (first_name, gender_hint).
+
+    Cards carry things like 'Anna K', 'S. Bund', 'Herr Duong', 'XX'. We want a
+    usable first name or nothing at all - a wrong name is worse than none.
+    """
+    if not raw:
+        return "", None
+    parts = [x for x in re.split(r"[\s,]+", raw.strip()) if x]
+    if not parts:
+        return "", None
+    gender = None
+    if parts[0].lower() in TITLES:
+        gender = "f" if parts[0].lower() == "frau" else "m"
+        parts = parts[1:]
+        if not parts:
+            return "", gender
+    name = parts[0].strip(".")
+    if len(name) < 3 or not re.fullmatch(r"[A-Za-z\u00c4\u00d6\u00dc\u00e4\u00f6\u00fc\u00df-]+", name):
+        return "", gender          # initials, "XX" and similar are not names
+    if name.isupper():
+        return "", gender
+    return name, gender
+
+
+def parse_search_page(html):
+    """Read every listing card on a search results page."""
+    soup = BeautifulSoup(html, "lxml")
+    out = []
+    for card in soup.select("[id^=\'liste-details-ad-\']"):
+        link = card.select_one("h2 a") or card.select_one("a[href*=\'.html\']")
+        if not link:
+            continue
+        href = link.get("href") or ""
+        url = href if href.startswith("http") else "https://www.wg-gesucht.de/" + href.lstrip("/")
+        m = LISTING_ID.search(url)
+        if not m:
+            continue
+        text = re.sub(r"\s+", " ", card.get_text(" ", strip=True))
+        dates = CARD_DATES.search(text)
+        if dates:
+            start, end = to_date(dates.group(1)), to_date(dates.group(2))
+        else:
+            only_from = CARD_FROM.search(text)
+            start = to_date(only_from.group(1)) if only_from else None
+            end = None
+        avatar = card.select_one("img.avatar")
+        raw_name = (avatar.get("alt") if avatar else "") or (
+            card.select_one("span.ml5").get_text(strip=True) if card.select_one("span.ml5") else "")
+        name, gender = clean_name(raw_name)
+        price = CARD_PRICE.search(text)
+        out.append({
+            "id": m.group(1),
+            "title": link.get_text(strip=True) or "Angebot",
+            "url": url,
+            "price": price.group(1) if price else "",
+            "start": start,
+            "end": end,
+            "name": name,
+            "gender": gender,
+        })
+    return out
+
+
 # --- browser ----------------------------------------------------------------
 
 def dismiss_cookies(page, sel):
-    for part in sel["cookie_accept"].split(","):
-        try:
-            button = page.locator(part.strip()).first
-            if button.is_visible(timeout=2000):
-                button.click()
-                page.wait_for_timeout(800)
-                return
-        except Exception:
-            continue
+    """
+    The consent box is injected a second or two after the page loads, so a
+    single early click misses it. It sits on top of everything, which would
+    block the contact button later, so it is worth being patient here.
+    """
+    for attempt in range(3):
+        for part in sel["cookie_accept"].split(","):
+            try:
+                button = page.locator(part.strip()).first
+                if button.is_visible(timeout=2500):
+                    button.click()
+                    page.wait_for_timeout(1000)
+                    log("cookie banner dismissed")
+                    return True
+            except Exception:
+                continue
+        page.wait_for_timeout(1500)
+    return False
 
 
 def logged_in(page, sel):
@@ -259,23 +349,8 @@ def log_in(page, cfg, sel):
 def collect(page, search, sel):
     page.goto(search["url"], wait_until="domcontentloaded")
     dismiss_cookies(page, sel)
-    page.wait_for_timeout(2000)
-    listings = {}
-    for card in page.locator(sel["listing_card"]).all():
-        try:
-            link = card.locator(sel["listing_link"]).first
-            href = link.get_attribute("href") or ""
-            title = (link.inner_text() or "").strip().split("\n")[0]
-        except Exception:
-            continue
-        if not href:
-            continue
-        url = href if href.startswith("http") else "https://www.wg-gesucht.de/" + href.lstrip("/")
-        if (m := LISTING_ID.search(url)):
-            listings[m.group(1)] = {"id": m.group(1),
-                                    "title": title or "Angebot",
-                                    "url": url}
-    return list(listings.values())
+    page.wait_for_timeout(2500)
+    return parse_search_page(page.content())
 
 
 def examine(page, listing, sel):
@@ -289,21 +364,26 @@ def examine(page, listing, sel):
 
 def decide(listing, facts, search, cfg):
     """
-    Returns (action, note, extras).
-    action is one of: send, skip, flag
-    """
-    min_months = search.get("min_months", 0) or 0
-    start, end = facts["start"], facts["end"]
+    Returns (action, note, extras). action is: send, skip or flag.
 
-    if min_months:
-        if end is None:
-            pass                      # no end date = open ended = fine
-        elif start is None:
+    Dates come from the search card, so a listing that is too short is rejected
+    without ever being opened.
+    """
+    start, end = listing.get("start"), listing.get("end")
+
+    earliest = search.get("earliest_start")
+    if earliest and start:
+        wanted = datetime.strptime(str(earliest), "%Y-%m-%d").date()
+        if start < wanted:
+            return "skip", f"starts {start:%d.%m.%Y}, you want {wanted:%d.%m.%Y} or later", []
+
+    min_months = search.get("min_months", 0) or 0
+    if min_months and end is not None:
+        if start is None:
             return "flag", "could not read the dates", []
-        else:
-            length = months_between(start, end)
-            if length < min_months - 0.15:      # ~4 days of tolerance
-                return "skip", f"only {length:.1f} months, you want {min_months}+", []
+        length = months_between(start, end)
+        if length < min_months - 0.15:
+            return "skip", f"only {length:.1f} months, you want {min_months}+", []
 
     extras, unknown, matched = apply_rules(facts["text"], cfg)
     if unknown:
@@ -311,9 +391,10 @@ def decide(listing, facts, search, cfg):
     return "send", (", ".join(matched) if matched else ""), extras
 
 
-def compose(template, facts, extras, cfg):
-    name = find_name(facts["text"])
-    gender = guess_gender(facts["text"], name, cfg)
+def compose(template, facts, extras, cfg, listing=None):
+    listing = listing or {}
+    name = listing.get("name") or find_name(facts["text"])
+    gender = listing.get("gender") or guess_gender(facts["text"], name, cfg)
     body = template.replace("[salutation]", build_salutation(name, gender))
     body = body.replace("[name]", name if name else "zusammen")
     if extras:
@@ -462,7 +543,7 @@ def main():
                                 f"{listing['title']}\n{note}\n{listing['url']}")
                     continue
 
-                body = compose(search["message"], facts, extras, cfg)
+                body = compose(search["message"], facts, extras, cfg, listing)
                 ok, result = deliver(page, body, sel, really_send)
                 log(f"  {listing['title'][:50]} -> {result}"
                     + (f" [{note}]" if note else ""))
