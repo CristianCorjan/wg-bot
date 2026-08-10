@@ -1,70 +1,49 @@
-# Copy this file to config.yaml and fill it in. config.yaml must never be
-# committed to git — it holds your password.
+name: wg gesucht
 
-account:
-  email: "you@example.com"
-  password: "your-wg-gesucht-password"
+on:
+  schedule:
+    - cron: "7 6-19 * * *"    # once an hour, 08:00-21:00 German time (UTC+2)
+  workflow_dispatch:
 
-# Optional: reuse the Telegram bot you already made, to get a message every time
-# the bot writes to a landlord. Leave blank to switch this off.
-telegram:
-  token: ""
-  chat_id: ""
+permissions:
+  contents: write
 
-# How careful to be. These numbers are the whole reason your account survives.
-limits:
-  max_per_day: 10          # hard ceiling across all searches
-  max_per_run: 3           # how many to send in one wake-up
-  min_delay_seconds: 90    # random pause between two messages
-  max_delay_seconds: 300
-  active_hours: [8, 22]    # only send between 08:00 and 22:00 local time
+concurrency:
+  group: wg
+  cancel-in-progress: false
 
-# One block per search. Take each URL from your browser after setting the
-# filters on wg-gesucht.de — including the rental-type filter. That is what
-# decides which message gets sent, so no text analysis is needed.
-searches:
-  - name: "limited term (Zwischenmiete / Untermiete)"
-    url: "https://www.wg-gesucht.de/wg-zimmer-in-Muenchen.90.0.1.0.html?rent_types%5B%5D=1"
-    message: |
-      Hallo [name],
+jobs:
+  contact:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
-      dein Zimmer gefällt mir sehr — die Lage passt perfekt zu meinem Arbeitsweg.
-      Ich suche genau für diesen Zeitraum eine Zwischenmiete.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-      Kurz zu mir: [schreib hier zwei, drei Sätze über dich]
+      - run: pip install -r requirements.txt
 
-      Ich würde mich sehr über eine Besichtigung freuen.
+      - run: playwright install --with-deps chromium
 
-      Viele Grüße
-      Chris
+      - name: Write to new listings
+        env:
+          WG_EMAIL: ${{ secrets.WG_EMAIL }}
+          WG_PASSWORD: ${{ secrets.WG_PASSWORD }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python wgbot.py --inspect
 
-  - name: "long term"
-    url: "https://www.wg-gesucht.de/wg-zimmer-in-Muenchen.90.0.1.0.html?rent_types%5B%5D=2"
-    message: |
-      Hallo [name],
-
-      euer Zimmer klingt genau nach dem, was ich suche — ich möchte gerne
-      langfristig einziehen und ein echter Teil der WG werden.
-
-      Kurz zu mir: [schreib hier zwei, drei Sätze über dich]
-
-      Über eine Einladung zur Besichtigung würde ich mich sehr freuen.
-
-      Viele Grüße
-      Chris
-
-# CSS selectors. Websites change; when the bot stops working this is almost
-# always the part to fix. Run `python wgbot.py --inspect` to get a screenshot
-# and the page HTML so you can check them.
-selectors:
-  cookie_accept: "#cmpwelcomebtnyes, .cmpboxbtnyes"
-  login_open: "a[href*='login']"
-  login_email: "#login_email_username"
-  login_password: "#login_password"
-  login_submit: "#login_submit"
-  logged_in_marker: "a[href*='mein-wg-gesucht']"
-  listing_card: "[id^='liste-details-ad-']"
-  listing_link: "a[href*='.html']"
-  contact_button: "a[href*='nachricht-senden'], #copy_email_button"
-  message_box: "#message_input, textarea[name='message']"
-  send_button: "#send_message_button, button[type='submit']"
+      - name: Remember who was contacted
+        if: always()
+        run: |
+          if [[ -n "$(git status --porcelain contacted.sqlite)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add contacted.sqlite
+            git commit -m "contacted $(date -u +%FT%TZ)"
+            git pull --rebase --autostash
+            git push
+          else
+            echo "nothing new"
+          fi
