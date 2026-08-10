@@ -120,12 +120,13 @@ flag_keywords:
 
 selectors:
   cookie_accept: "#cmpwelcomebtnyes, .cmpboxbtnyes"
-  # there is no login link - the bot calls the site's own popup function
+  # Login is a popup with two steps: email first, password second.
   login_open: "unused"
-  login_email: "#login_form input[name='login_email_username'][type='text']"
+  login_email: "#pre_session_email"
+  login_email_submit: "#pre_session_form button"
   login_password: "#login_form input#login_password"
   login_submit: "#login_form button[type='submit']"
-  logged_in_marker: "a[href*='mein-wg-gesucht'], a[href*='logout'], #mein_konto"
+  logged_in_marker: "a[href*='mein-wg-gesucht'], a[href*='logout'], a[href*='abmelden']"
   listing_card: "[id^='liste-details-ad-']"
   listing_link: "h2 a"
   contact_button: "a[href*='nachricht-senden'], #copy_email_button"
